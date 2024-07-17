@@ -14,7 +14,7 @@ batch_size = 4
 num_epoch = 100
 
 data_dir = './data/datasets'
-checkpoint_dir = './checkpoints' # train된 네트워크가 저장될 checkpoint 디렉토리
+ckpt_dir = './checkpoints' # train된 네트워크가 저장될 checkpoint 디렉토리
 log_dir = './logs'               # tensor board 로그 파일 저장
 
 # train이 cpu / gpu 머신에서 동작할 지 결정해주는 device flag
@@ -302,8 +302,34 @@ fn_class = lambda x: 1.0 * ( x > 0.5)
 writer_train = SummaryWriter(log_dir=os.path.join(log_dir, 'train'))
 writer_val = SummaryWriter(log_dir=os.path.join(log_dir, 'val'))
 
+# 네트워크 가져오기
+def save(ckpt_dir, model, optim, epoch):
+    if not os.path.exists(ckpt_dir):
+        os.makedirs(ckpt_dir)
+    
+    torch.save({'model':model.state_dict(), 'optim': optim.state_dict()}, 
+               "./%s/model_epoch%d.pth" % (ckpt_dir, epoch) )
+
+# 네트워크 불러오기
+def load(ckpt_dir, model, optim):
+    if not os.path.exists(ckpt_dir):
+        epoch = 0
+        return model, optim, epoch
+    ckpt_lst = os.listdir(ckpt_dir)
+    ckpt_lst.sort(key=lambda f: int(''.join(filter(str.isdigit, f))))
+
+    dict_model = torch.load('./%s/%s' % (ckpt_dir, ckpt_lst[-1]))
+
+    net.load_state_dict(dict_model['model'])
+    optim.load_state_dict(dict_model['optim'])
+    epoch = int(ckpt_lst[-1].split('epoch')[1].split('pth')[0])
+
+    return model, optim, epoch
+
 # 네트워크 학습시키기: training이 진행되는 for loop 구현
 st_epoch = 0
+# 네트워크를 학습시키기 이전에 저장된 네트워크가 있다면 불러와서, 연속적으로 네트워크를 학습시킬 수 있도록
+net, optim, st_epoch = load(ckpt_dir=ckpt_dir, model=model, optim=optim)
 
 for epoch in range(st_epoch + 1, num_epoch + 1):
     # 네트워크에게 training 모드임을 알려주는 training 모드 activate 
@@ -342,6 +368,10 @@ for epoch in range(st_epoch + 1, num_epoch + 1):
 
     # loss를 텐서보드에 저장하는 부분
     writer_train.add_scalar('loss', np.mean(loss_arr), epoch)
+    
+    # epoch 1번씩이 아니라, 만약 10번마다 20번마다 저장하고 싶다면, 저장하는 부분 위에
+    # if epoch % 5 ==0 :
+    save(ckpt_dir=ckpt_dir, model=model, optim=optim, epoch=epoch)
 
 # 네트워크 validation - back propagation 없어.
 # back propagation을 사전에 막기 위해 torch.no_grad()사용
