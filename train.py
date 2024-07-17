@@ -141,3 +141,131 @@ class UNet(nn.Module):
         x = self.fc(decoder1_1)
 
         return x
+    
+## 데이터 로더 구현하기
+class Dataset(torch.utils.data.Dataset): # Dataset 크ㄹ래스 상속 받기
+    def __init__(self, data_dir, transform=None): # 차후 구현할 것들을 argument로 받기
+        self.data_dir = data_dir
+        self.transform = transform
+
+        # dataset directory에 저장되어있는 모든 dataset list 얻어와야함.
+        # 어떤 식으로 dataset directory에 저장이 되어있는지 확인해야함.
+        # input과 label로 prefix되어있는 dataset
+        lst_data = os.listdir(self.data_dir)
+
+        lst_label = [f for f in lst_data if f.startswith('label')]
+        lst_input = [f for f in lst_data if f.startswith('input')]
+
+        # 리스트 정렬
+        lst_label.sort()
+        lst_input.sort()
+
+        # 이를 파라미터로 가지고 있기.
+        self.lst_label = lst_label
+        self.lst_input = lst_input
+    
+    def __len__(self):
+        return len(self.lst_label)
+    
+    def __getitem__(self, index):
+        # Numpy형태로 데이터셋이 저장되어있기 때문에 numpy 노드를 이용해 데이터셋 불러오기
+        label = np.load(os.path.join(self.data_dir, self.lst_label[index]))
+        input = np.load(os.path.join(self.data_dir, self.lst_label[index]))
+
+        # 저장된 데이터가 0-255 -> 0-1로 normalize하기 위해 아래와 같이! -> 왜??
+        label = label/255.0
+        input = input/255.0
+
+        # neural network에 들어가는 input은 3개의 axis를 가져야함.
+        # channel이 없는 경우 (x,y axis만 있는 경우) -> channel에 해당하는 axis를 임의로 생성해줘야함. 
+        # numpy의 newaxis 사용
+        if label.ndim == 2:
+            label = label[:, :, np.newaxis]
+
+        if input.ndim == 2:
+            input = input[:, :, np.newaxis]
+
+        data = {'input': input, 'label': label}
+
+        # 만약 transform function을 data_loader의 arg로 넣어준다면, 
+        if self.transform:
+            data = self.transform(data)
+        return data
+
+# dataset class에 해당하는 object 만들기
+dataset_train = Dataset(data_dir=os.path.join(data_dir, 'train'))
+
+data = dataset_train.__getitem__(0) # 첫번째 index에 해당하는 dataset 불러오기
+
+input = data['input']
+label = data['label']
+
+print(label.shape) # (512, 512, 1)
+
+# transform 구현하기
+# 필수적으로 들어가야하는 transform 
+# ToTensor() : numpy -> tensor
+# data = {'input': input, 'label': label} -> input과 label을 dictionary로 갖는 
+# data라는 object를 받아서, tensor로 변경
+class ToTensor(object): 
+    def __call__(self, data):
+        label, input = data['label'], data['input']
+
+        # tensor로 담기 전, pytorch의 기본적인 data variable의 data axis와 다름. 
+        # img의 numpy 차원 = (Y, X, CH)
+        # pytorch = (CH, Y, X) channel dimension의 위치가 다르기 때문에 2로
+        label = label.transpose((2, 0, 1)).astype(np.float32)
+        input = input.transpose((2, 0, 1)).astype(np.float32)
+        
+        # numpy를 tensor로 넘겨주는 함수인 from_numpy 사용
+        data = {'label': torch.from_numpy(label), 'input': torch.from_numpy(input)}
+        
+        return data
+    
+class Normalization(object):
+    def __init__(self, mean=0.5, std=0.5):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, data):
+        label, input = data['label'], data['input']
+        
+        input = (input - self.mean) / self.std
+        #label같은 경우에는, 0 또는 1의 class로 정의되어있기 때문에 하면 안됨.
+        data = {'label': label, 'input': input}
+        
+        return data
+
+class RandomFlip(object):
+    def __call__(self, data):
+        label, input = data['label'], data['input']
+
+        # 무조건 label, input 같이
+        if np.random.rand() > 0.5:
+            label = np.fliplr(label)
+            input = np.fliplr(input)
+        
+        if np.random.rand() > 0.5:
+            label = np.flipud(label)
+            input = np.flipud(input)
+        
+        data = {'label': label, 'input': input}
+
+        return data
+
+# torch vision의 이미 선언된 transforms 에 정의된 여러 transform 함수를 묶어서 선언할 수 있는 compose 함수가 있음.
+transform = transforms.Compose([Normalization(mean=0.5, std=0.5), RandomFlip(), ToTensor()])
+dataset_train = Dataset(data_dir=os.path.join(data_dir, 'train'), transform=transform)
+
+data = dataset_train.__getitem__(0) # 첫번째 index에 해당하는 dataset 불러오기
+
+input = data['input']
+label = data['label']
+
+print(label.shape) # torch.Size([1, 512, 512])
+print(label.type()) # torch.FloatTensor
+ 
+
+
+
+
